@@ -5,13 +5,16 @@ from tqdm import tqdm
 
 class LayerRemoverEnv(object):
 	def __init__(self, parent_class, trains, valids, tests, 
-	             batch_input_shape = (500,28,28,1)):
+	             batch_input_shape = (500,28,28,1), max_t=5):
 		self.parent_class = parent_class
 		self.trains = trains
 		self.valids = valids
 		self.tests = tests
 		self.batch_input_shape = batch_input_shape
 		self.reset()
+  
+		#episode
+		self.max_t = max_t
 
 		#parent model
 		self.parent_model = self.parent_class()
@@ -21,9 +24,12 @@ class LayerRemoverEnv(object):
 		self.acc_test_parent, self.nb_params_parent = self.train_parent()
 
 	def get_state(self):
-		return tf.convert_to_tensor(self.child_model.child_states)[None,:]
+		return tf.convert_to_tensor(self.child_model.child_states, dtype=tf.float32)
 
 	def reset(self):
+		#reset timestep
+		self.t = 0
+
 		#records for debugging
 		self.epoch_train_losses = []
 		self.epoch_valid_losses = []
@@ -54,16 +60,24 @@ class LayerRemoverEnv(object):
 		self.child_model.build(self.batch_input_shape)
 		if self.child_model.count_params() > self.parent_model.count_params():
 			reward = -1
+			nb_params, acc_test = 0,0
 		else: 
 			acc_test, nb_params = self.train_child(action)
 			reward = self.get_reward(acc_test, nb_params)
 		next_state = self.get_state()
-		return state, action, reward, next_state
+		self.t+=1
+		if self.t==self.max_t:
+			done = 1.
+		else:
+			done = 0.
+		info = {'compression ratio': 1-nb_params/self.nb_params_parent, 
+		        'accuracy ratio':acc_test/self.acc_test_parent}
+		return next_state, reward, done, info
 
-	def train_child(self, action, nb_epoch=3, lamb=0.9):
+	def train_child(self, action, nb_epoch=1, lamb=0.9, verbose=False):
 		optimizer = tf.keras.optimizers.Adam(learning_rate = 1e-3, amsgrad=True)
 		start_time = datetime.now()
-		for e in tqdm(range(nb_epoch)):
+		for e in range(nb_epoch):
 			for i,(x,y) in enumerate(self.train_ds):
 				epoch_train_loss = []
 				preds_parent = self.parent_model(x) 
@@ -87,10 +101,11 @@ class LayerRemoverEnv(object):
 			self.epoch_valid_losses.append(np.mean(epoch_valid_loss))
 			
 			#log
-			print(f'epoch {e} - Train Loss: {np.mean(epoch_train_loss)};\
-			Valid Loss: {np.mean(epoch_valid_loss)};\
-			Valid Acc: {(tf.argmax(preds,1)==tf.cast(y,tf.int64)).numpy().mean()}')
-		print(f'Training done in {datetime.now() - start_time}')
+			if verbose:
+				print(f'epoch {e} - Train Loss: {np.mean(epoch_train_loss)};\
+				Valid Loss: {np.mean(epoch_valid_loss)};\
+				Valid Acc: {(tf.argmax(preds,1)==tf.cast(y,tf.int64)).numpy().mean()}')
+		if verbose: print(f'Training done in {datetime.now() - start_time}')
 		#test
 		x_test, y_test = next(iter(self.test_ds))
 		preds_test = self.child_model(x_test)
@@ -98,10 +113,10 @@ class LayerRemoverEnv(object):
 		#record
 		return acc_test, self.child_model.count_params()
 
-	def train_parent(self, nb_epoch=1):
+	def train_parent(self, nb_epoch=1, verbose=True):
 		optimizer = tf.keras.optimizers.Adam(learning_rate = 1e-3, amsgrad=True)
 		start_time = datetime.now()
-		for e in tqdm(range(nb_epoch)):
+		for e in range(nb_epoch):
 			for i,(x,y) in enumerate(self.train_ds):
 				epoch_train_loss = []
 				with tf.GradientTape() as tape:
@@ -130,10 +145,11 @@ class LayerRemoverEnv(object):
 			valid_preds = tf.concat(valid_preds,0)
 			valid_ys = tf.concat(valid_ys,0)
 			#log
-			print(f'epoch {e} - Train Loss: {np.mean(epoch_train_loss)};\
-			Valid Loss: {np.mean(epoch_valid_loss)};\
-			Valid Acc: {(tf.argmax(valid_preds,1)==tf.cast(valid_ys,tf.int64)).numpy().mean()}')
-		print(f'Training done in {datetime.now() - start_time}')
+			if verbose:
+				print(f'epoch {e} - Train Loss: {np.mean(epoch_train_loss)};\
+				Valid Loss: {np.mean(epoch_valid_loss)};\
+				Valid Acc: {(tf.argmax(valid_preds,1)==tf.cast(valid_ys,tf.int64)).numpy().mean()}')
+		if verbose: print(f'Training done in {datetime.now() - start_time}')
 
 		#test loop
 		test_preds = []
