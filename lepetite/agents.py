@@ -172,11 +172,10 @@ class PPOBernoulli(Model):
                 ratio = tf.reduce_sum(tf.math.exp(tf.math.log(preds_a) - tf.math.log(probs)),1)[:,None]
                 surr1 = ratio * advantages
                 surr2 = tf.clip_by_value(ratio, 1-self.eps_clip, 1+self.eps_clip) * advantages
-                actor_loss = tf.math.minimum(surr1,surr2)
+                actor_loss = tf.reduce_mean(tf.math.minimum(surr1,surr2))
                 critic_loss_fn = tf.keras.losses.MeanSquaredError()
                 critic_loss = critic_loss_fn(q_targets, self.critique(states))
                 loss = -actor_loss + critic_loss
-                loss = tf.reduce_mean(loss)
                 gradients = tape.gradient(loss, self.trainable_weights)
             self.optimizer.apply_gradients(zip(gradients,self.trainable_weights))
             self.loss_lst.append(loss.numpy())
