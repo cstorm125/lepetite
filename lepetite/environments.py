@@ -60,7 +60,7 @@ class LayerRemoverEnv(object):
 		self.child_model.build(self.batch_input_shape)
 		if self.child_model.count_params() > self.parent_model.count_params():
 			reward = -1
-			nb_params, acc_test = 0,0
+			nb_params, acc_test = 1e8, -1
 		else: 
 			acc_test, nb_params = self.train_child(action)
 			reward = self.get_reward(acc_test, nb_params)
