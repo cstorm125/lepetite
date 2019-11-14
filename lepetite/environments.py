@@ -70,7 +70,7 @@ class LayerRemoverEnv(object):
 			done = 1.
 		else:
 			done = 0.
-		info = {'compression ratio': 1-nb_params/self.nb_params_parent, 
+		info = {'compression ratio': self.nb_params_parent/nb_params, 
 		        'accuracy ratio':acc_test/self.acc_test_parent}
 		return next_state, reward, done, info
 
